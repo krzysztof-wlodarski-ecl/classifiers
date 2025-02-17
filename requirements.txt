@@ -1,0 +1,11 @@
+torch
+torchvision
+tqdm
+transformers
+gradio
+numpy
+pillow
+uvicorn
+fastapi
+starlette
+scikit-learn

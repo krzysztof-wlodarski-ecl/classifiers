@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ocena obrazków</title>
+    <style>
+        .gallery {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        .gallery-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .gallery-item img {
+            max-width: 200px;
+            max-height: 200px;
+        }
+        .buttons {
+            margin-top: 10px;
+        }
+        .buttons button {
+            margin: 0 5px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+        .buttons button.selected {
+            border: 2px solid green;
+        }
+
+        .buttons button.clicked {
+            background-color: DarkTurquoise;
+        }
+
+        .hidden {
+           display: none;
+        }
+
+    </style>
+</head>
+<body>
+    <label>
+        <input type="checkbox" id="filter-toggle"> Only "Yes" toggle
+    </label>
+    <div class="gallery" id="gallery"></div>
+
+    <script>
+        // Funkcja do pobierania danych z serwera
+        async function fetchData(url) {
+            const response = await fetch(url);
+            return await response.json();
+        }
+
+        // Funkcja do wysyłania oceny
+        async function sendRating(imageId, label, thisbutton, otherbutton) {
+            console.log(label)
+            await fetch(`http://localhost:8000/mark?label=${label}&key=${imageId}`, {
+                method: 'GET'
+            });
+            thisbutton.classList.add('clicked');
+            otherbutton.classList.remove("clicked");
+            updatePredictions();
+        }
+
+        // Funkcja do aktualizacji predykcji
+        async function updatePredictions() {
+            const predictions = await fetchData('http://localhost:8000/get-predictions');
+            const gallery = document.getElementById('gallery');
+            const items = gallery.querySelectorAll('.gallery-item');
+            if(predictions.length == 0) {
+                return;
+            }
+
+            items.forEach(item => {
+                const imageId = item.dataset.id;
+                const buttons = item.querySelectorAll('.buttons button');
+                const prediction = predictions.find(p => p[0] === imageId);
+
+                buttons.forEach(button => {
+                    button.classList.remove('selected');
+                });
+
+                if (prediction) {
+                    const button = prediction[1] === 1 ? item.querySelector('.yes') : item.querySelector('.no');
+                    button.classList.add('selected');
+                }
+            });
+
+            filterGallery(predictions);
+        }
+
+        function filterGallery(predictions) {
+            const filterToggle = document.getElementById('filter-toggle');
+            const galleryItems = document.querySelectorAll('.gallery-item');
+
+            galleryItems.forEach(item => {
+                const imageId = item.dataset.id;
+                const prediction = predictions.find(p => p[0] === imageId);
+
+                if (filterToggle.checked) {
+                    // Ukryj elementy, które nie mają predykcji "tak"
+                    item.classList.toggle('hidden', !prediction || prediction[1] !== 1);
+                } else {
+                    // Pokaż wszystkie elementy
+                    item.classList.remove('hidden');
+                }
+        });
+}
+
+        // Funkcja do generowania galerii
+        async function generateGallery() {
+            const imageIds = await fetchData('http://localhost:8000/get-done');
+            const gallery = document.getElementById('gallery');
+
+            imageIds.forEach(imageId => {
+                const item = document.createElement('div');
+                item.className = 'gallery-item';
+                item.dataset.id = imageId;
+
+                const img = document.createElement('img');
+                img.src = `http://localhost:9000?path=${imageId}`;
+                item.appendChild(img);
+
+                const buttons = document.createElement('div');
+                buttons.className = 'buttons';
+
+                const noButton = document.createElement('button');
+                const yesButton = document.createElement('button');
+                noButton.className = 'no';
+                noButton.textContent = 'No';
+                yesButton.className = 'yes';
+                yesButton.textContent = 'Yes';
+
+                noButton.onclick = () => sendRating(imageId, '0', noButton, yesButton);
+                yesButton.onclick = () => sendRating(imageId, '1', yesButton, noButton);
+                buttons.appendChild(noButton);
+                buttons.appendChild(yesButton);
+
+                item.appendChild(buttons);
+                gallery.appendChild(item);
+            });
+
+            updatePredictions();
+        }
+
+        // Inicjalizacja galerii po załadowaniu strony
+        window.onload = generateGallery;
+        document.getElementById('filter-toggle').addEventListener('change', () => {
+            fetchData('http://localhost:8000/get-predictions').then(filterGallery);
+        });
+    </script>
+</body>
+</html>
+

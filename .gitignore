@@ -1,0 +1,5 @@
+images/
+.idea/
+**/embed.cache
+venv/
+**/temp.png
