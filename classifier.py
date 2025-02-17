@@ -22,12 +22,12 @@ engine = EmbeddingEngine()
 
 # step 1 - compose paths and their labels
 
-false_path = "T:\\dev\\classifiers\\images\\sharpened\\clean"
+false_path = "/Users/superkrzysio/eclipse-root/dev/bran-detection/images/by_viscon/Adidas/false"
 false_path = os.path.abspath(false_path)
 false_keys = [os.path.join(false_path, f) for f in os.listdir(false_path) if f.split(".")[-1].lower() in ["png", "jpg", "jpeg"]]
 false_keys = random.choices(false_keys, k=500)
 
-true_path = "T:\\dev\\classifiers\\images\\sharpened\\sharpened"
+true_path = "/Users/superkrzysio/eclipse-root/dev/bran-detection/images/by_viscon/Adidas/true"
 true_path = os.path.abspath(true_path)
 true_keys = [os.path.join(true_path, f) for f in os.listdir(true_path) if f.split(".")[-1].lower() in ["png", "jpg", "jpeg"]]
 true_keys = random.choices(true_keys, k=500)
@@ -112,7 +112,8 @@ def svm(C, kernel, gamma, degree, max_iter):
 
 def test(classifier, path):
     result = engine.embed_path(path)
-    paths, vectors = zip(*result)
+    result_tuple = [(key, result[key]) for key in result.keys()]
+    paths, vectors = zip(*result_tuple)
     vectors = np.array(vectors)
     labels = classifier.predict(vectors)
 
@@ -163,4 +164,4 @@ with gr.Blocks() as interface:
     run_svm.click(fn=svm, inputs=[C, kernel, gamma, degree, max_iter], outputs=[roc, trained_classifier])
 
 
-interface.launch(allowed_paths=["T:\\", "F:\\"])
+interface.launch(allowed_paths=["T:\\", "F:\\", "/Users/superkrzysio/eclipse-root/dev/"])
