@@ -1,16 +1,25 @@
 """
 GUI which allows experimenting with different classifiers and their parameters.
 Requires your own set of images divided into two classes.
+Remember to run interface.launch with proper allowed_paths so that gradio can display images.
+
+Possible pitfalls:
+- too small train dataset compared to feature space (512 features!)
+- not all features can be meaningful, try dimensionality reduction
+-
 """
 import itertools
 import os
 import pickle
+from typing import List
+
 import gradio as gr
 import random
 
 import numpy as np
 
 from PIL import Image
+
 from tqdm import tqdm
 
 from utils.embedding import EmbeddingEngine
@@ -21,41 +30,54 @@ engine = EmbeddingEngine()
 # data
 
 # step 1 - compose paths and their labels
+train_vectors: np.ndarray
+train_labels: list
 
-false_path = "/Users/superkrzysio/eclipse-root/dev/bran-detection/images/by_viscon/Adidas/false"
-false_path = os.path.abspath(false_path)
-false_keys = [os.path.join(false_path, f) for f in os.listdir(false_path) if f.split(".")[-1].lower() in ["png", "jpg", "jpeg"]]
-false_keys = random.choices(false_keys, k=500)
+test_vectors: np.ndarray
+test_labels: list
 
-true_path = "/Users/superkrzysio/eclipse-root/dev/bran-detection/images/by_viscon/Adidas/true"
-true_path = os.path.abspath(true_path)
-true_keys = [os.path.join(true_path, f) for f in os.listdir(true_path) if f.split(".")[-1].lower() in ["png", "jpg", "jpeg"]]
-true_keys = random.choices(true_keys, k=500)
 
-false_labeled_keys = zip(false_keys, [0] * len(false_keys))
-true_labeled_keys = zip(true_keys, [1] * len(true_keys))
-labeled_keys = list(itertools.chain(false_labeled_keys, true_labeled_keys))
-random.shuffle(labeled_keys)
+def fn_load_data(false_path, true_path):
+    global train_vectors, train_labels, test_vectors, test_labels
+    max_data = 500
 
-data = {}
-# step 2 - enrich data with embeddings
-for i in tqdm(range(len(labeled_keys))):
-    vector = engine.embed_single(labeled_keys[i][0])
-    data[labeled_keys[i][0]] = { "vector": vector, "label": labeled_keys[i][1]}
+    # false_path = "/Users/superkrzysio/eclipse-root/dev/bran-detection/images/by_viscon/Adidas/false"
+    # false_path = os.path.abspath(false_path)
+    false_keys = [os.path.join(false_path, f) for f in os.listdir(false_path) if f.split(".")[-1].lower() in ["png", "jpg", "jpeg"]]
+    random.shuffle(false_keys)
+    false_keys = false_keys[:min(max_data, len(false_keys))]
 
-# step 3 - divide into train set and test set
-# one day I'll learn how to use library for this
-keys = list(data.keys())
-divider = int(len(keys)*0.66)
-train_keys = keys[:divider]
-test_keys = keys[divider:]
+    # true_path = "/Users/superkrzysio/eclipse-root/dev/bran-detection/images/by_viscon/Adidas/true"
+    # true_path = os.path.abspath(true_path)
+    true_keys = [os.path.join(true_path, f) for f in os.listdir(true_path) if f.split(".")[-1].lower() in ["png", "jpg", "jpeg"]]
+    random.shuffle(true_keys)
+    true_keys = true_keys[:min(max_data, len(true_keys))]
 
-train_vectors = np.array([data[key]["vector"] for key in train_keys])
-train_labels = [data[key]["label"] for key in train_keys]
+    false_labeled_keys = zip(false_keys, [0] * len(false_keys))
+    true_labeled_keys = zip(true_keys, [1] * len(true_keys))
+    labeled_keys = list(itertools.chain(false_labeled_keys, true_labeled_keys))
+    random.shuffle(labeled_keys)
 
-test_data = np.array([data[key]["vector"] for key in test_keys])
-test_labels = [data[key]["label"] for key in test_keys]
-test_labels = np.array(test_labels)
+    data = {}
+    # step 2 - enrich data with embeddings
+    for i in gr.Progress().tqdm(range(len(labeled_keys))):
+        vector = engine.embed_single(labeled_keys[i][0])
+        data[labeled_keys[i][0]] = {"vector": vector, "label": labeled_keys[i][1]}
+
+    # step 3 - divide into train set and test set
+    # one day I'll learn how to use library for this
+    keys = list(data.keys())
+    divider = int(len(keys)*0.66)
+    train_keys = keys[:divider]
+    test_keys = keys[divider:]
+
+    train_vectors = np.array([data[key]["vector"] for key in train_keys])
+    train_labels = [data[key]["label"] for key in train_keys]
+
+    test_vectors = np.array([data[key]["vector"] for key in test_keys])
+    test_labels = [data[key]["label"] for key in test_keys]
+    test_labels = np.array(test_labels)
+    return pbar
 
 # ------------------------
 # classification
@@ -87,7 +109,7 @@ def decision_tree(max_leaf_nodes, max_features, min_samples_split, max_depth):
     clf = DecisionTreeClassifier(max_depth=max_depth, max_leaf_nodes=max_leaf_nodes, max_features=max_features, min_samples_split=min_samples_split)
     clf.fit(train_vectors, train_labels)
 
-    probs = clf.predict_proba(test_data)[:, 1]
+    probs = clf.predict_proba(test_vectors)[:, 1]
     prepare_roc(test_labels, probs)
 
     im = Image.open("temp.png")
@@ -104,9 +126,34 @@ def svm(C, kernel, gamma, degree, max_iter):
     clf = SVC(probability=True, kernel=kernel, C=C, gamma=gamma, degree=degree, max_iter=max_iter)  # Możesz dostosować kernel, C i gamma
     clf.fit(train_vectors, train_labels)
 
-    probs = clf.predict_proba(test_data)[:, 1]  # Prawdopodobieństwa dla klasy pozytywnej
+    probs = clf.predict_proba(test_vectors)[:, 1]  # Prawdopodobieństwa dla klasy pozytywnej
     prepare_roc(test_labels, probs)
 
+    im = Image.open("temp.png")
+    return im, clf
+
+
+def random_forest(max_depth, n_estimators, max_features):
+    max_depth = int(max_depth) if max_depth != "" else None
+    n_estimators = int(n_estimators) if n_estimators != "" else None
+    max_features = int(max_features) if max_features != "" else None
+    from sklearn.ensemble import RandomForestClassifier
+
+    clf = RandomForestClassifier(max_depth=max_depth, n_estimators=n_estimators, max_features=max_features)
+    clf.fit(train_vectors, train_labels)
+
+    probs = clf.predict_proba(test_vectors)[:, 1]
+    prepare_roc(test_labels, probs)
+    im = Image.open("temp.png")
+    return im, clf
+
+def gaussian_nb():
+    from sklearn.naive_bayes import GaussianNB
+    clf = GaussianNB()
+    clf.fit(train_vectors, train_labels)
+
+    probs = clf.predict_proba(test_vectors)[:, 1]
+    prepare_roc(test_labels, probs)
     im = Image.open("temp.png")
     return im, clf
 
@@ -128,6 +175,14 @@ def test(classifier, path):
 with gr.Blocks() as interface:
     trained_classifier = gr.State()
     with gr.Row():
+        with gr.Tab("Data"):
+            with gr.Row():
+                false_path = gr.Textbox(label="Negative class", value="/Users/superkrzysio/eclipse-root/dev/bran-detection/images/by_viscon/Adidas/false")
+                true_path = gr.Textbox(label="Positive class", value="/Users/superkrzysio/eclipse-root/dev/bran-detection/images/by_viscon/Adidas/true")
+            with gr.Row():
+                load_data = gr.Button("Load")
+                pbar = gr.Label(label="Progress bar")
+                load_data.click(fn=fn_load_data, inputs=[false_path, true_path], outputs=[pbar])
         with gr.Tab("Decision tree"):
             with gr.Row():
                 max_leaf_nodes = gr.Textbox(label="Max leaf nodes")
@@ -145,6 +200,18 @@ with gr.Blocks() as interface:
                 max_iter = gr.Slider(minimum=-1, maximum=10000, value=-1, label="Max iterations")
             with gr.Row():
                 run_svm = gr.Button("Run")
+        with gr.Tab("Random forest"):
+            with gr.Row():
+                max_depth_rf = gr.Textbox(label="Max depth", value="5")
+                n_estimators = gr.Textbox(label="N estimators", value="10")
+                max_features_rf = gr.Textbox(label="Max features", value="10")
+            with gr.Row():
+                run_rf = gr.Button("Run")
+        with gr.Tab("Naive Bayes"):
+            with gr.Row():
+                gr.Label(label="No params")
+            with gr.Row():
+                run_nb = gr.Button("Run")
 
     with gr.Row():
         with gr.Tab("Evaluation"):
@@ -162,6 +229,8 @@ with gr.Blocks() as interface:
     run_test.click(fn=test, inputs=[trained_classifier, test_path], outputs=[positive_test_results, negative_test_results])
     run_decision_tree.click(fn=decision_tree, inputs=[max_leaf_nodes, max_features, min_samples_split, max_depth], outputs=[roc, trained_classifier])
     run_svm.click(fn=svm, inputs=[C, kernel, gamma, degree, max_iter], outputs=[roc, trained_classifier])
+    run_rf.click(fn=random_forest, inputs=[max_depth_rf, n_estimators, max_features_rf], outputs=[roc, trained_classifier])
+    run_nb.click(fn=gaussian_nb, outputs=[roc, trained_classifier])
 
 
 interface.launch(allowed_paths=["T:\\", "F:\\", "/Users/superkrzysio/eclipse-root/dev/"])

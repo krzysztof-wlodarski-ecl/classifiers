@@ -25,7 +25,7 @@ true_path = os.path.abspath(true_path)
 true_set = [os.path.join(true_path, f) for f in os.listdir(true_path) if f.split(".")[-1].lower() in ["png", "jpg", "jpeg"]]
 true_set = random.choices(true_set, k=200)
 
-all_keys = list(itertools.chain(false_set))
+all_keys = list(itertools.chain(false_set, true_set))
 random.shuffle(all_keys)
 
 
